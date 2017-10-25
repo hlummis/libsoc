@@ -12,6 +12,13 @@
 static int interrupt_count = 0;
 
 /**
+ * To compile, after following the instructions given in the readme, execute
+ * gcc jetson_test.c -o <TEST_NAME> $(pkg-config --cflags --libs libsoc)
+ * GPIO interfacing MUST be done as su, so make sure to run the executable
+ * in a sudo session or using the sudo keyword
+ */
+
+/**
  * A simple callback function for testing interrupt functionality.
  * simply increments the value stored in the arg's location
  */
