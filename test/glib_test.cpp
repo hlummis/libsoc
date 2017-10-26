@@ -10,7 +10,9 @@
  *    interval defined to be RESET_INTERVAL seconds. When no ping is detected
  *    within that timeframe, the Jetson will assume the chip that is expected
  *    to send such pings has been deactivated and will attempt to reset it in
- *    response. 
+ *    response.
+ *  - Log all suspicious events (i.e. resets) in a log file where the records
+ *    can be accessed later. 
  *  - Await boots after resetting. The Jetson will not immediately expect to 
  *    begin receiving inbound pings again upon reset. Rather, the Jetson will
  *    continue simply sending pings for a number of seconds defined by 
@@ -253,7 +255,7 @@ receivePing (void *arg) {
   int diff = (int) (nowMs - curMs);
 
   // Don't update curPing if difference is less than bouncetime
-  if (diff < BOUNCE_TIME) {
+  if (diff < PING_BOUNCETIME) {
     return EXIT_SUCCESS;
   }
 
@@ -344,7 +346,7 @@ int main (int argc, char **argv)
                                   (void *) pins);
   
   // Add a timeout to the main loop to send pings at regular intervals
-  // g_timeout_add_seconds (PING_INTERVAL, sendPing, (gpointer) pins);
+  g_timeout_add_seconds (PING_INTERVAL, sendPing, (gpointer) pins);
   // libsoc_gpio_set_level (pins->ping_output, LOW);
   // Add a timeout to the main loop to check if a reset is necessary at 
   // regular intervals 
