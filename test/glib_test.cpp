@@ -1,10 +1,44 @@
+/**
+ * The purpose of this file is to define a behavior for the Jetson wherein 
+ * the Jetson will...
+ *  - Send outbound pings on a GPIO pin at a regular interval of PING_INTERVAL
+ *    seconds.
+ *  - Receive inbound pings on an interrupt basis (i.e. through threaded
+ *    polling). 
+ *  - Send reset signals when appropriate. Appropriate here is defined to be
+ *    when the Jetson has not received an inbound ping within the time 
+ *    interval defined to be RESET_INTERVAL seconds. When no ping is detected
+ *    within that timeframe, the Jetson will assume the chip that is expected
+ *    to send such pings has been deactivated and will attempt to reset it in
+ *    response. 
+ *  - Await boots after resetting. The Jetson will not immediately expect to 
+ *    begin receiving inbound pings again upon reset. Rather, the Jetson will
+ *    continue simply sending pings for a number of seconds defined by 
+ *    BOOT_INTERVAL. Upon the completion of this interval, the Jetson will 
+ *    again expect to receive inbound pings.
+ * 
+ * This program depends on two libraries: glib-2.0 and libsoc.
+ * 
+ * GLib allows for simplified creation of an event loop so that asynchronous
+ * behavior may occur within a single thread context. The main use of this event
+ * loop here is to coordinate timeout events. Interrupt detection occurs in
+ * a separate thread.
+ * 
+ * libsoc provides a simple C interface for working with the Jetson's GPIO pins.
+ * Lighter-weight libraries were tested, however this particular library provides
+ * a threaded callback-based implementation of edge detection on the GPIO pins,
+ * so we opted for it instead.
+ *
+ * All GPIO interfacing is accomplished through libsoc while any events of note 
+ * are handled within the main event loop.
+ */
+
 #include <glib.h>
 #include <iostream>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include <ctime>
 #include <chrono>
 #include "libsoc_gpio.h"
 #include "libsoc_debug.h"
@@ -169,9 +203,6 @@ int main (int argc, char **argv)
   pinData *pins = (pinData *) malloc (sizeof (*pins));
 
   // Setup initial reset timer values
-  // pins->prevPing = std::time (nullptr);
-  // pins->curPing = std::time (&pins->prevPing);
-
   pins->prevPing = duration_cast< milliseconds >(
     system_clock::now().time_since_epoch()
   );
