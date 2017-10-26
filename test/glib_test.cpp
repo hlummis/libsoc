@@ -13,6 +13,9 @@
 #define RESET_OUTPUT 63 // TODO: set this
 #define PING_INTERVAL 10
 
+// Compilation instruction: 
+//g++ -std=gnu++0x glib_test.cpp -o glibtest -I/usr/local/include -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include -L/usr/local/lib -lglib-2.0 -lsoc
+
 typedef struct {
   gpio *ping_output;
   gpio *ping_input;
