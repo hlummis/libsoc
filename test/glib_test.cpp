@@ -43,6 +43,8 @@
  * 
  * Approximately 4K Ohm resistance should be used between the Pi ping output and
  * the Jetson ping input to avoid noise-triggered interrupts.
+ * 
+ * TODO: add check after reset to see if reset was successful
  */
 #include <glib.h>
 #include <iostream>
@@ -51,9 +53,15 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <chrono>
+
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
+#include <boost/log/sinks/text_file_backend.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/sources/severity_logger.hpp>
+#include <boost/log/sources/record_ostream.hpp>
 
 #include "libsoc_gpio.h"
 #include "libsoc_debug.h"
@@ -66,10 +74,16 @@
 #define BOOT_INTERVAL 10
 #define DEBUG_MESSAGES 1
 #define PING_BOUNCETIME 300
+#define LOG_FNAME_PREFIX "leroy"
 
 // Define namespaces
 namespace logging = boost::log;
+namespace src = boost::log::sources;
+namespace sinks = boost::log::sinks;
+namespace keywords = boost::log::keywords;
+
 using namespace std::chrono;
+using namespace logging::trivial;
 
 // Compilation instruction: 
 //g++ -std=gnu++0x glib_test.cpp -o glibtest -I/usr/local/include -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include -L/usr/local/lib -lglib-2.0 -lsoc
@@ -82,6 +96,7 @@ typedef struct {
   milliseconds curPing;  // Stores the time of the most recent ping
   guint resetTimerId;    // Stores the id of the reset timer source
   guint bootTimerId;     // Stores the id of the boot timer source
+  src::severity_logger<severity_level> *lg; // Store a pointer to the logger
 } pinData;
 
 /* Make some forward declarations so that we can access functions within one another */
@@ -90,6 +105,27 @@ static gboolean sendPing (gpointer args);
 static gboolean checkReset (gpointer args);
 static gboolean sendReset (gpointer args);
 int receivePing (void *arg);
+void init_logs ();
+
+/**
+ * Initialize loggers
+ */
+void
+init_logs () 
+{
+  // Create the file log
+  logging::add_file_log(
+    keywords::file_name = LOG_FNAME_PREFIX "_%N.log",
+    keywords::rotation_size = 10 * 1024 * 1024,
+    keywords::time_based_rotation = sinks::file::rotation_at_time_point(0, 0, 0),
+    keywords::format = "[%TimeStamp%]: %Message%"
+  );
+  
+  // Set the filter
+  logging::core::get()->set_filter(
+    logging::trivial::severity >= logging::trivial::info
+  );
+}
 
 /**
  * After awaiting a boot for a specified amount of time, remove the timer source
@@ -152,7 +188,15 @@ checkReset (gpointer args)
     if (DEBUG_MESSAGES == 1) {
       std::cout << "No ping receipt detected. Resetting..." << std::endl;
     }
+    
+    // Determine epoch time of last ping (in seconds)
+    long long curMs = pins->curPing.count() / 1000;
 
+    // Log a record of the last ping at reset time
+    BOOST_LOG_SEV(lg, warn) << 
+      "No ping detected within timeframe. Sending reset signal.\n" <<
+      "    Last ping detected at " << curMs << " seconds since epoch.\n";
+    
     // No ping has been received. Send a reset signal
     sendReset (args);
     
@@ -224,6 +268,12 @@ receivePing (void *arg) {
 
 int main (int argc, char **argv)
 {
+  // Setup logger
+  init_logs ();
+  logging::add_common_attributes ();
+    
+  src::severity_logger<severity_level> lg;
+
   // Spawn an event loop
   GMainLoop *loop = g_main_loop_new(0, 0);  
   
@@ -240,6 +290,9 @@ int main (int argc, char **argv)
   pins->ping_input = libsoc_gpio_request (PING_INPUT, LS_GPIO_SHARED);
   pins->reset_output = libsoc_gpio_request (RESET_OUTPUT, LS_GPIO_SHARED);
 
+  // Add pointer to logger to pins
+  pins->lg = &lg;
+
   // Make sure pins are actually requested
   if (pins->ping_output == NULL || pins->ping_input == NULL || 
       pins->reset_output == NULL)
@@ -254,19 +307,31 @@ int main (int argc, char **argv)
 
   // Check that directions were indeed set
   if (libsoc_gpio_get_direction (pins->ping_output) != OUTPUT) {
-    printf ("Failed to set ping_output direction to OUTPUT\n");
+    std::string logMessage = "Failed to set ping_output direction to OUTPUT\n";
+    if (DEBUG_MESSAGES == 1) {
+      printf (logMessage);
+    }
+    BOOST_LOG_SEV(lg, fatal) << logMessage;
     goto fail;
   }
 
   if (libsoc_gpio_get_direction(pins->ping_input) != INPUT)
   {
-    printf ("Failed to set ping_input direction to INPUT\n");
+    std::string logMessage = "Failed to set ping_input direction to INPUT\n";
+    if (DEBUG_MESSAGES == 1) {
+      printf(logMessage);
+    }
+    BOOST_LOG_SEV(lg, fatal) << logMessage;
     goto fail;
   }
 
   if (libsoc_gpio_get_direction(pins->reset_output) != OUTPUT)
   {
-    printf ("Failed to set reset_output direction to OUTPUT\n");
+    std::string logMessage = "Failed to set reset_output direction to OUTPUT\n";
+    if (DEBUG_MESSAGES == 1) {
+      printf(logMessage);
+    }
+    BOOST_LOG_SEV(lg, fatal) << logMessage;
     goto fail;
   }
 
