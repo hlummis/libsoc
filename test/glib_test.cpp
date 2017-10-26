@@ -16,26 +16,34 @@
  *    continue simply sending pings for a number of seconds defined by 
  *    BOOT_INTERVAL. Upon the completion of this interval, the Jetson will 
  *    again expect to receive inbound pings.
+ *  - Logs all suspicious events (i.e. required resets) in a separate file
+ *    for debugging purposes
  * 
- * This program depends on two libraries: glib-2.0 and libsoc.
+ * This program depends on the following libraries:
  * 
- * GLib allows for simplified creation of an event loop so that asynchronous
- * behavior may occur within a single thread context. The main use of this event
- * loop here is to coordinate timeout events. Interrupt detection occurs in
- * a separate thread.
- * 
+ ********************************* glib-2.0 ************************************
+ *   GLib allows for simplified creation of an event loop so that asynchronous
+ *   behavior may occur within a single thread context. The main use of this 
+ *   event loop here is to coordinate timeout events. Interrupt detection occurs
+ *   in a separate thread.
+ ******************************************************************************* 
+ ********************************** libsoc *************************************
  * libsoc provides a simple C interface for working with the Jetson's GPIO pins.
  * Lighter-weight libraries were tested, however this particular library provides
  * a threaded callback-based implementation of edge detection on the GPIO pins,
  * so we opted for it instead.
- *
+ ******************************************************************************* 
+ *********************************** boost *************************************
+ * The boost library provides a simple interface for handling logs. Without
+ * boost, tasks such as creating new log files on a regular basis would be 
+ * rather difficult.
+ ******************************************************************************* 
  * All GPIO interfacing is accomplished through libsoc while any events of note 
  * are handled within the main event loop.
  * 
  * Approximately 4K Ohm resistance should be used between the Pi ping output and
  * the Jetson ping input to avoid noise-triggered interrupts.
  */
-
 #include <glib.h>
 #include <iostream>
 #include <stdlib.h>
@@ -43,6 +51,10 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <chrono>
+#include <boost/log/core.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/expressions.hpp>
+
 #include "libsoc_gpio.h"
 #include "libsoc_debug.h"
 
@@ -55,6 +67,8 @@
 #define DEBUG_MESSAGES 1
 #define PING_BOUNCETIME 300
 
+// Define namespaces
+namespace logging = boost::log;
 using namespace std::chrono;
 
 // Compilation instruction: 
