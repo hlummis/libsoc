@@ -4,8 +4,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include <time.h>
-
+#include <ctime>
 #include "libsoc_gpio.h"
 #include "libsoc_debug.h"
 
@@ -18,8 +17,8 @@ typedef struct {
   gpio *ping_output;
   gpio *ping_input;
   gpio *reset_output;
-  float prevPing;
-  float curPing;
+  std::time_t prevPing;
+  std::time_t curPing;
 } pinData;
 
 /**
@@ -63,7 +62,9 @@ gboolean sendReset (void *args)
  */
 int 
 ping_receive_callback (void *arg) {
-  curPing = ((float) clock() / CLOCKS_PER_SEC) * 1000;
+  pinData *pins = (pinData *) arg;
+  std::cout << "Received a ping!" << std::endl;
+  pins->curPing = std::time (nullptr);
   return EXIT_SUCCESS;
 }
 
@@ -72,59 +73,74 @@ int main (int argc, char **argv)
   // Spawn an event loop
   GMainLoop *loop = g_main_loop_new(0, 0);  
   
-  pinData *pins;
+  pinData *pins = (pinData *) malloc (sizeof (*pins));
 
   // Setup initial reset timer values
-  pinData->prevPing = ((float)clock() / CLOCKS_PER_SEC) * 1000;
-  pinData->curPing = prevPing;
+  pins->prevPing = std::time (nullptr);
+  pins->curPing = std::time (&pins->prevPing);
 
   // Setup pins
-  pinData->ping_output = libsoc_gpio_request (PING_OUTPUT, LS_GPIO_SHARED);
-  pinData->ping_input = libsoc_gpio_request (PING_INPUT, LS_GPIO_SHARED);
-  pinData->reset_output = libsoc_gpio_request (RESET_OUTPUT, LS_GPIO_SHARED);
+  pins->ping_output = libsoc_gpio_request (PING_OUTPUT, LS_GPIO_SHARED);
+  pins->ping_input = libsoc_gpio_request (PING_INPUT, LS_GPIO_SHARED);
+  pins->reset_output = libsoc_gpio_request (RESET_OUTPUT, LS_GPIO_SHARED);
 
 
   // Make sure pins are actually requested
-  if (pinData->ping_output == NULL || pinData->ping_input == NULL || 
-      pinData->reset_ouput == NULL)
+  if (pins->ping_output == NULL || pins->ping_input == NULL || 
+      pins->reset_output == NULL)
   {
     goto fail;
   }
 
   // Set the pin directions
-  libsoc_gpio_set_direction (pinData->ping_output, OUTPUT);
-  libsoc_gpio_set_direction (pinData->ping_input, INPUT); 
-  libsoc_gpio_set_direction (pinData->reset_output, OUTPUT);
+  libsoc_gpio_set_direction (pins->ping_output, OUTPUT);
+  libsoc_gpio_set_direction (pins->ping_input, INPUT); 
+  libsoc_gpio_set_direction (pins->reset_output, OUTPUT);
 
   // Check that directions were indeed set
-  if (libsoc_gpio_get_direction (pinData->ping_output) != OUTPUT) {
+  if (libsoc_gpio_get_direction (pins->ping_output) != OUTPUT) {
     printf ("Failed to set ping_output direction to OUTPUT\n");
     goto fail;
   }
 
-  if (libsoc_gpio_get_direction(pinData->ping_input) != INPUT)
+  if (libsoc_gpio_get_direction(pins->ping_input) != INPUT)
   {
-    printf("Failed to set ping_input direction to INPUT\n");
+    printf ("Failed to set ping_input direction to INPUT\n");
     goto fail;
   }
 
-  if (libsoc_gpio_get_direction(pinData->reset_output) != OUTPUT)
+  if (libsoc_gpio_get_direction(pins->reset_output) != OUTPUT)
   {
-    printf("Failed to set reset_output direction to OUTPUT\n");
+    printf ("Failed to set reset_output direction to OUTPUT\n");
     goto fail;
   }
 
   // Set the edge on the ping input pin to "falling" to detect interrupts
-  libsoc_gpio_set_edge (pinData->ping_input, FALLING);
+  libsoc_gpio_set_edge (pins->ping_input, FALLING);
 
   // Setup the ping callback to handle interrupts
-  libsoc_gpio_callback_interrupt (pinData->ping_input, 
+  libsoc_gpio_callback_interrupt (pins->ping_input, 
                                   &ping_receive_callback,
-                                  (void *) pinData);
+                                  (void *) pins);
   
   // Add a timeout to the main loop to send pings at regular intervals
-  g_timeout_add_seconds (PING_INTERVAL, sendPing, (gpointer) pinData);
+  g_timeout_add_seconds (PING_INTERVAL, sendPing, (gpointer) pins);
 
   // Run the main loop
-  g_main_loop_run(loop);
+  g_main_loop_run(loop); 
+
+  fail: 
+  
+  // Clear the gpio memory
+  if (pins->ping_output) {
+    libsoc_gpio_free (pins->ping_output);
+  }
+
+  if (pins->ping_input) {
+    libsoc_gpio_free (pins->ping_input);
+  } 
+
+  if (pins->reset_output) {
+    libsoc_gpio_free (pins->reset_output);
+  } 
 }
