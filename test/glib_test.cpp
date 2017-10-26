@@ -190,6 +190,7 @@ receivePing (void *arg) {
     long long nowMs = now.count();
     long long curMs = pins->curPing.count();
     std::cout << "Time difference: " << (nowMs - curMs) << std::endl;
+    std::cout << "Level detected: " << libsoc_gpio_get_level (pins->ping_input) << std::endl;
   }
   pins->curPing = now;
   return EXIT_SUCCESS;
@@ -252,7 +253,7 @@ int main (int argc, char **argv)
                                   (void *) pins);
   
   // Add a timeout to the main loop to send pings at regular intervals
-  // g_timeout_add_seconds (PING_INTERVAL, sendPing, (gpointer) pins);
+  g_timeout_add_seconds (PING_INTERVAL, sendPing, (gpointer) pins);
   // libsoc_gpio_set_level (pins->ping_output, LOW);
   // Add a timeout to the main loop to check if a reset is necessary at 
   // regular intervals 
