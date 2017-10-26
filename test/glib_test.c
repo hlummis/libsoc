@@ -14,14 +14,12 @@
 #define RESET_OUTPUT 63 // TODO: set this
 #define PING_INTERVAL 10
 
-float prevPing, curPing;
-prevPing = ((float) clock() / CLOCKS_PER_SEC) * 1000;
-curPing = prevPing;
-
 typedef struct {
-  gpio *ping_output,
-  gpio *ping_input,
-  gpio *reset_output
+  gpio *ping_output;
+  gpio *ping_input;
+  gpio *reset_output;
+  float prevPing;
+  float curPing;
 } pinData;
 
 /**
@@ -72,13 +70,19 @@ ping_receive_callback (void *arg) {
 int main (int argc, char **argv)
 {
   // Spawn an event loop
-  GMainLoop *loop = g_main_loop_new(0, 0);
+  GMainLoop *loop = g_main_loop_new(0, 0);  
+  
+  pinData *pins;
+
+  // Setup initial reset timer values
+  pinData->prevPing = ((float)clock() / CLOCKS_PER_SEC) * 1000;
+  pinData->curPing = prevPing;
 
   // Setup pins
-  pinData *pins;
   pinData->ping_output = libsoc_gpio_request (PING_OUTPUT, LS_GPIO_SHARED);
   pinData->ping_input = libsoc_gpio_request (PING_INPUT, LS_GPIO_SHARED);
   pinData->reset_output = libsoc_gpio_request (RESET_OUTPUT, LS_GPIO_SHARED);
+
 
   // Make sure pins are actually requested
   if (pinData->ping_output == NULL || pinData->ping_input == NULL || 
