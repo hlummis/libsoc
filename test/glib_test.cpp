@@ -10,7 +10,9 @@
  *    interval defined to be RESET_INTERVAL seconds. When no ping is detected
  *    within that timeframe, the Jetson will assume the chip that is expected
  *    to send such pings has been deactivated and will attempt to reset it in
- *    response. 
+ *    response.
+ *  - Log all suspicious events (i.e. resets) in a log file where the records
+ *    can be accessed later. 
  *  - Await boots after resetting. The Jetson will not immediately expect to 
  *    begin receiving inbound pings again upon reset. Rather, the Jetson will
  *    continue simply sending pings for a number of seconds defined by 
@@ -31,6 +33,9 @@
  *
  * All GPIO interfacing is accomplished through libsoc while any events of note 
  * are handled within the main event loop.
+ * 
+ * Approximately 4K Ohm resistance should be used between the Pi ping output and
+ * the Jetson ping input to avoid noise-triggered interrupts.
  */
 
 #include <glib.h>
@@ -50,6 +55,7 @@
 #define RESET_INTERVAL 5
 #define BOOT_INTERVAL 10
 #define DEBUG_MESSAGES 1
+#define PING_BOUNCETIME 300
 
 using namespace std::chrono;
 
@@ -57,13 +63,13 @@ using namespace std::chrono;
 //g++ -std=gnu++0x glib_test.cpp -o glibtest -I/usr/local/include -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include -L/usr/local/lib -lglib-2.0 -lsoc
 
 typedef struct {
-  gpio *ping_output;
-  gpio *ping_input;
-  gpio *reset_output;
-  milliseconds prevPing;
-  milliseconds curPing;
-  guint resetTimerId;
-  guint bootTimerId;
+  gpio *ping_output;     // Stores the address of the ping output pin object
+  gpio *ping_input;      // Stores the address of the ping input pin object
+  gpio *reset_output;    // Stores the address of the reset pin object
+  milliseconds prevPing; // Stores the time of the ping last time reset checked
+  milliseconds curPing;  // Stores the time of the most recent ping
+  guint resetTimerId;    // Stores the id of the reset timer source
+  guint bootTimerId;     // Stores the id of the boot timer source
 } pinData;
 
 /* Make some forward declarations so that we can access functions within one another */
@@ -185,14 +191,22 @@ receivePing (void *arg) {
   milliseconds now = duration_cast< milliseconds >(
     system_clock::now().time_since_epoch()
   );
-  if (DEBUG_MESSAGES == 1) {
-    std::cout << "Received a ping!" << std::endl;
-    long long nowMs = now.count();
-    long long curMs = pins->curPing.count();
-    std::cout << "Time difference: " << (nowMs - curMs) << std::endl;
-    std::cout << "Level detected: " << libsoc_gpio_get_level (pins->ping_input) << std::endl;
+  // Check to see if receipt occurred within bouncetime
+  long long nowMs = now.count();
+  long long curMs = pins->curPing.count();
+  int diff = (int) (nowMs - curMs);
+
+  // Don't update curPing if difference is less than bouncetime
+  if (diff < PING_BOUNCETIME) {
+    return EXIT_SUCCESS;
   }
+
   pins->curPing = now;
+
+  if (DEBUG_MESSAGES == 1) {
+    std::cout << "Received a ping!" << std::endl;    
+    std::cout << "Time difference: " << (nowMs - curMs) << std::endl;
+  }  
   return EXIT_SUCCESS;
 }
 
