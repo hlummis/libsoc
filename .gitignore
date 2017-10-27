@@ -32,3 +32,6 @@ libsoc.pc
 *.o
 *.pyc
 *.swp
+
+# Log files
+*.log

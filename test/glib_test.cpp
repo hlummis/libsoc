@@ -48,6 +48,8 @@
  * 
  * TODO: add check after reset to see if reset was successful
  */
+#define BOOST_LOG_DYN_LINK 1
+
 #include <glib.h>
 #include <iostream>
 #include <stdlib.h>
@@ -88,7 +90,7 @@ using namespace std::chrono;
 using namespace logging::trivial;
 
 // Compilation instruction: 
-//g++ -std=gnu++0x glib_test.cpp -o glibtest -I/usr/local/include -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include -L/usr/local/lib -lglib-2.0 -lsoc
+// g++ -std=c++11 glib_test.cpp -o glibtest -lboost_log `pkg-config --cflags --libs libsoc glib-2.0` -lboost_thread -lpthread -lboost_system -lboost_log_setup
 
 typedef struct {
   gpio *ping_output;     // Stores the address of the ping output pin object
@@ -98,7 +100,8 @@ typedef struct {
   milliseconds curPing;  // Stores the time of the most recent ping
   guint resetTimerId;    // Stores the id of the reset timer source
   guint bootTimerId;     // Stores the id of the boot timer source
-  src::severity_logger<severity_level> *lg; // Store a pointer to the logger
+  src::severity_logger<severity_level> *lg; // Stores a pointer to the logger
+  long long lastResetTime; // Store the time of the last reset
 } pinData;
 
 /* Make some forward declarations so that we can access functions within one another */
@@ -120,7 +123,8 @@ init_logs ()
     keywords::file_name = LOG_FNAME_PREFIX "_%N.log",
     keywords::rotation_size = 10 * 1024 * 1024,
     keywords::time_based_rotation = sinks::file::rotation_at_time_point(0, 0, 0),
-    keywords::format = "[%TimeStamp%]: %Message%"
+    keywords::format = "[%TimeStamp%]: %Message%",
+    keywords::auto_flush = true
   );
   
   // Set the filter
@@ -181,6 +185,8 @@ sendPing (gpointer args)
 static gboolean
 checkReset (gpointer args)
 {
+  using namespace logging::trivial;
+
   // Cast args to the correct pointer type
   pinData *pins;
   pins = (pinData *) args;
@@ -193,12 +199,25 @@ checkReset (gpointer args)
     
     // Determine epoch time of last ping (in seconds)
     long long curMs = pins->curPing.count() / 1000;
-
-    // Log a record of the last ping at reset time
-    BOOST_LOG_SEV(lg, warn) << 
-      "No ping detected within timeframe. Sending reset signal.\n" <<
-      "    Last ping detected at " << curMs << " seconds since epoch.\n";
     
+    // If no ping has been detected since the last reset, we have a major
+    // problem
+    if (pins->lastResetTime && curMs < pins->lastResetTime) {
+      BOOST_LOG_SEV (*pins->lg, error) << "No ping detected since last " <<
+        "reset. Last ping detected at " << curMs << ". Last reset detected " <<
+        "at " << pins->lastResetTime << ". Sending reset signal."; 
+    } else {
+      // Log a record of the last ping at reset time
+      BOOST_LOG_SEV(*pins->lg, warning) << 
+        "No ping detected within timeframe. Last ping detected at " << curMs << 
+        " seconds since epoch. Sending reset signal.";
+    }
+    
+    // Update the reset time
+    pins->lastResetTime = duration_cast< seconds >(
+      system_clock::now().time_since_epoch()
+    ).count();
+      
     // No ping has been received. Send a reset signal
     sendReset (args);
     
@@ -231,7 +250,7 @@ sendReset (gpointer args)
   // Cast args to the correct pointer type
   pinData *pins;
   pins = (pinData *) args;
-
+  
   // Send a reset signal
   libsoc_gpio_set_level (pins->reset_output, HIGH);
   // Unset the reset signal
@@ -311,7 +330,7 @@ int main (int argc, char **argv)
   if (libsoc_gpio_get_direction (pins->ping_output) != OUTPUT) {
     std::string logMessage = "Failed to set ping_output direction to OUTPUT\n";
     if (DEBUG_MESSAGES == 1) {
-      printf (logMessage);
+      std::cout << logMessage << std::endl;
     }
     BOOST_LOG_SEV(lg, fatal) << logMessage;
     goto fail;
@@ -321,7 +340,7 @@ int main (int argc, char **argv)
   {
     std::string logMessage = "Failed to set ping_input direction to INPUT\n";
     if (DEBUG_MESSAGES == 1) {
-      printf(logMessage);
+      std::cout << logMessage << std::endl;
     }
     BOOST_LOG_SEV(lg, fatal) << logMessage;
     goto fail;
@@ -331,7 +350,7 @@ int main (int argc, char **argv)
   {
     std::string logMessage = "Failed to set reset_output direction to OUTPUT\n";
     if (DEBUG_MESSAGES == 1) {
-      printf(logMessage);
+      std::cout << logMessage << std::endl;
     }
     BOOST_LOG_SEV(lg, fatal) << logMessage;
     goto fail;
